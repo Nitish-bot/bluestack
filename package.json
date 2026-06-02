@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@blueshift-gg/quasar-svm": "^0.1",
-    "@solana/web3.js": "github:blueshift-gg/web3.js#v2"
+    "@solana/web3.js": "3.0.0-rc.0"
   },
   "devDependencies": {
     "@types/chai": "^5.2.0",
