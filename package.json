@@ -4,10 +4,12 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
+    "postinstall": "node scripts/patch-quasar-svm-exports.mjs",
     "test": "mocha --require tsx --delay tests/*.test.ts"
   },
   "dependencies": {
     "@blueshift-gg/quasar-svm": "^0.1",
+    "@solana/kit": "^6.9.0",
     "@solana/web3.js": "3.0.0-rc.0"
   },
   "devDependencies": {

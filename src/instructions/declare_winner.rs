@@ -4,11 +4,9 @@ use crate::state::Election;
 
 #[derive(Accounts)]
 pub struct DeclareWinner {
-    #[account(mut)]
     pub payer: Signer,
     #[account(mut)]
     pub election: Account<Election>,
-    pub system_program: Program<SystemProgram>,
 }
 
 impl DeclareWinner {
