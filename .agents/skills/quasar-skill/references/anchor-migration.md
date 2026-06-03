@@ -147,7 +147,7 @@ Most Anchor constraints map 1:1:
 | `associated_token::...` | `associated_token(mint = ..., authority = ..., ...)` |
 | `init_if_needed` | `init(idempotent)` |
 | `close = dest` | `close(dest = dest)` |
-| `@ ErrorCode` | `@ MyError` |
+| `@ ErrorCode` | `@ ElectionError` |
 
 ## SPL CPI
 
@@ -181,11 +181,11 @@ See `examples/escrow/src/instructions/take.rs` (`self.escrow_seeds(bumps)`).
 ```rust
 // Anchor
 #[error_code]
-pub enum MyError { #[msg("...")] Unauthorized }
+pub enum ElectionError { #[msg("...")] Unauthorized }
 
 // Quasar — plain variants (tests/programs/test-errors/src/errors.rs)
 #[error_code]
-pub enum MyError {
+pub enum ElectionError {
     Unauthorized = 0,
     InsufficientFunds,
 }

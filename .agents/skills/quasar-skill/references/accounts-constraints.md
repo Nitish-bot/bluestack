@@ -117,13 +117,13 @@ Store bump in account state when you build CPI seed arrays manually or want stab
 #[account(mut, has_one(authority), address = Counter::seeds(authority.address()))]
 pub counter: Account<Counter>,
 
-#[account(has_one(owner) @ MyError::WrongOwner)]
+#[account(has_one(owner) @ ElectionError::WrongOwner)]
 pub vault: Account<Vault>,
 
 #[account(address = ADMIN_PUBKEY)]
 pub admin: Signer,
 
-#[account(address = config.admin @ MyError::NotAdmin)]
+#[account(address = config.admin @ ElectionError::NotAdmin)]
 pub admin: UncheckedAccount,
 ```
 
@@ -222,10 +222,10 @@ Allows the same account pubkey to appear multiple times in the account list (nor
 
 ## Custom errors on constraints
 
-Append `@ ErrorVariant` or `@ 6000 + MyError::Variant`:
+Append `@ ErrorVariant` or `@ 6000 + ElectionError::Variant`:
 
 ```rust
-#[account(constraints(amount > 0) @ MyError::ZeroAmount)]
+#[account(constraints(amount > 0) @ ElectionError::ZeroAmount)]
 ```
 
 ## Multi-token-program selector

@@ -6,7 +6,7 @@
 
 ```rust
 #[error_code]
-pub enum MyError {
+pub enum ElectionError {
     Unauthorized = 0,
     InsufficientFunds,   // auto-incremented code
     Explicit = 100,      // explicit code
@@ -18,10 +18,10 @@ Pattern from `tests/programs/test-errors/src/errors.rs` — plain enum variants 
 Usage in handlers and constraints:
 
 ```rust
-require!(amount > 0, MyError::InsufficientFunds);
-require_eq!(self.counter.authority, *self.authority.address(), MyError::Unauthorized);
+require!(amount > 0, ElectionError::InsufficientFunds);
+require_eq!(self.counter.authority, *self.authority.address(), ElectionError::Unauthorized);
 
-#[account(constraints(vault.is_active) @ MyError::VaultFrozen)]
+#[account(constraints(vault.is_active) @ ElectionError::VaultFrozen)]
 ```
 
 ### Error code mapping

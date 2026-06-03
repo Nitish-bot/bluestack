@@ -17,6 +17,70 @@ struct DecodedElection {
     votes: Vec<u32>,
 }
 
+struct ElectionFixture {
+    payer: Pubkey,
+    election: Pubkey,
+    candidates: [Pubkey; 3],
+    accounts: Vec<Account>,
+}
+
+impl ElectionFixture {
+    fn create(svm: &mut QuasarSvm) -> Self {
+        let payer = Pubkey::new_unique();
+        let election = election_pda(payer);
+        let candidates = std::array::from_fn(|_| Pubkey::new_unique());
+        let result = svm.process_instruction(
+            &create_election_ix(payer, election, candidates),
+            &[signer(payer), empty(election)],
+        );
+        assert!(
+            result.is_ok(),
+            "create_election failed: {:?}",
+            result.raw_result
+        );
+        Self {
+            payer,
+            election,
+            candidates,
+            accounts: result.accounts,
+        }
+    }
+
+    fn cast_votes(&mut self, svm: &mut QuasarSvm, counts: [u32; 3]) {
+        for (i, &count) in counts.iter().enumerate() {
+            for _ in 0..count {
+                let result = svm.process_instruction(
+                    &vote_ix(self.payer, self.election, self.candidates[i]),
+                    &self.accounts,
+                );
+                assert!(
+                    result.is_ok(),
+                    "vote for candidate {i} failed: {:?}",
+                    result.raw_result
+                );
+                self.accounts = result.accounts;
+            }
+        }
+    }
+
+    fn declare_winner(&mut self, svm: &mut QuasarSvm) -> DecodedElection {
+        let result = svm.process_instruction(
+            &declare_winner_ix(self.payer, self.election),
+            &self.accounts,
+        );
+        assert!(
+            result.is_ok(),
+            "declare_winner failed: {:?}",
+            result.raw_result
+        );
+        decode_election_at(&result.accounts, self.election)
+    }
+
+    fn state(&self) -> DecodedElection {
+        decode_election_at(&self.accounts, self.election)
+    }
+}
+
 fn setup() -> QuasarSvm {
     let elf = std::fs::read("target/deploy/bluestack.so").unwrap();
     QuasarSvm::new().with_program(&crate::ID, &elf)
@@ -74,41 +138,31 @@ fn decode_election(data: &[u8]) -> DecodedElection {
     }
 }
 
-fn election_from_result(result: &quasar_svm::ExecutionResult, election: Pubkey) -> DecodedElection {
-    let acct = result
-        .account(&election)
-        .expect("election account missing from result");
-    decode_election(&acct.data)
-}
-
-fn election_from_accounts(accounts: &[Account], election: Pubkey) -> DecodedElection {
-    let acct = accounts
+fn decode_election_at(accounts: &[Account], election: Pubkey) -> DecodedElection {
+    let data = &accounts
         .iter()
         .find(|a| a.address == election)
-        .expect("election account missing from accounts");
-    decode_election(&acct.data)
+        .expect("election account missing")
+        .data;
+    decode_election(data)
 }
 
 /// Generated client uses u32 length prefix; on-chain `Vec<Address, 3>` uses u16.
 fn create_election_ix(payer: Pubkey, election: Pubkey, candidates: [Pubkey; 3]) -> Instruction {
-    let candidate_addrs = vec![
-        to_address(candidates[0]),
-        to_address(candidates[1]),
-        to_address(candidates[2]),
-    ];
+    let addrs: Vec<Address> = candidates.iter().map(|&pk| to_address(pk)).collect();
 
     let mut ix: Instruction = CreateElectionInstruction {
         payer: to_address(payer),
         election: to_address(election),
         rent: to_address(quasar_svm::solana_sdk_ids::sysvar::rent::ID),
         system_program: to_address(quasar_svm::system_program::ID),
-        candidates: candidate_addrs.clone(),
+        candidates: addrs.clone(),
     }
     .into();
 
     let mut data = vec![0u8];
-    data.extend_from_slice(&(candidate_addrs.len() as u16).to_le_bytes());
-    for addr in candidate_addrs {
+    data.extend_from_slice(&(addrs.len() as u16).to_le_bytes());
+    for addr in &addrs {
         data.extend_from_slice(addr.as_ref());
     }
     ix.data = data;
@@ -135,174 +189,61 @@ fn declare_winner_ix(payer: Pubkey, election: Pubkey) -> Instruction {
 #[test]
 fn test_create_election() {
     let mut svm = setup();
+    let fx = ElectionFixture::create(&mut svm);
+    let state = fx.state();
 
-    let payer = Pubkey::new_unique();
-    let election = election_pda(payer);
-    let candidates: [Pubkey; 3] = std::array::from_fn(|_| Pubkey::new_unique());
-
-    let ix = create_election_ix(payer, election, candidates);
-    let result = svm.process_instruction(&ix, &[signer(payer), empty(election)]);
-    assert!(
-        result.is_ok(),
-        "create_election failed: {:?}",
-        result.raw_result
-    );
-
-    let state = election_from_result(&result, election);
-    assert_eq!(state.creator, payer);
+    assert_eq!(state.creator, fx.payer);
     assert_eq!(state.winner, None);
-    assert_eq!(state.candidates, candidates.as_slice());
+    assert_eq!(state.candidates, fx.candidates.as_slice());
     assert_eq!(state.votes, [0, 0, 0]);
 }
 
 #[test]
 fn test_happy_path_votes_and_declare_winner() {
     let mut svm = setup();
-
-    let payer = Pubkey::new_unique();
-    let election = election_pda(payer);
-    let candidates: [Pubkey; 3] = std::array::from_fn(|_| Pubkey::new_unique());
-
-    let create_ix = create_election_ix(payer, election, candidates);
-    let mut accounts = vec![signer(payer), empty(election)];
-
-    let create_result = svm.process_instruction(&create_ix, &accounts);
-    assert!(
-        create_result.is_ok(),
-        "create_election failed: {:?}",
-        create_result.raw_result
-    );
-    accounts = create_result.accounts;
-
+    let mut fx = ElectionFixture::create(&mut svm);
     let vote_counts = [3u32, 1, 2];
-    for (i, &count) in vote_counts.iter().enumerate() {
-        for _ in 0..count {
-            let ix = vote_ix(payer, election, candidates[i]);
-            let result = svm.process_instruction(&ix, &accounts);
-            assert!(
-                result.is_ok(),
-                "vote for candidate {i} failed: {:?}",
-                result.raw_result
-            );
-            accounts = result.accounts;
-        }
-    }
 
-    let state = election_from_accounts(&accounts, election);
-    assert_eq!(state.votes, vote_counts.as_slice());
+    fx.cast_votes(&mut svm, vote_counts);
+    assert_eq!(fx.state().votes, vote_counts.as_slice());
 
-    let declare_ix = declare_winner_ix(payer, election);
-    let declare_result = svm.process_instruction(&declare_ix, &accounts);
-    assert!(
-        declare_result.is_ok(),
-        "declare_winner failed: {:?}",
-        declare_result.raw_result
-    );
-
-    let state = election_from_result(&declare_result, election);
-    assert_eq!(state.winner, Some(candidates[0]));
+    let state = fx.declare_winner(&mut svm);
+    assert_eq!(state.winner, Some(fx.candidates[0]));
     assert_eq!(state.votes, vote_counts.as_slice());
 }
 
 #[test]
 fn test_tie_lowest_index_wins() {
     let mut svm = setup();
-
-    let payer = Pubkey::new_unique();
-    let election = election_pda(payer);
-    let candidates: [Pubkey; 3] = std::array::from_fn(|_| Pubkey::new_unique());
-
-    let create_ix = create_election_ix(payer, election, candidates);
-    let mut accounts = vec![signer(payer), empty(election)];
-
-    let create_result = svm.process_instruction(&create_ix, &accounts);
-    assert!(
-        create_result.is_ok(),
-        "create_election failed: {:?}",
-        create_result.raw_result
-    );
-    accounts = create_result.accounts;
-
+    let mut fx = ElectionFixture::create(&mut svm);
     let tie_votes = [2u32, 2, 1];
-    for (i, &count) in tie_votes.iter().enumerate() {
-        for _ in 0..count {
-            let ix = vote_ix(payer, election, candidates[i]);
-            let result = svm.process_instruction(&ix, &accounts);
-            assert!(
-                result.is_ok(),
-                "vote (tie) candidate {i} failed: {:?}",
-                result.raw_result
-            );
-            accounts = result.accounts;
-        }
-    }
 
-    let declare_ix = declare_winner_ix(payer, election);
-    let declare_result = svm.process_instruction(&declare_ix, &accounts);
-    assert!(
-        declare_result.is_ok(),
-        "declare_winner (tie) failed: {:?}",
-        declare_result.raw_result
-    );
+    fx.cast_votes(&mut svm, tie_votes);
+    let state = fx.declare_winner(&mut svm);
 
-    let state = election_from_result(&declare_result, election);
-    assert_eq!(state.winner, Some(candidates[0]));
+    assert_eq!(state.winner, Some(fx.candidates[0]));
     assert_eq!(state.votes, tie_votes.as_slice());
 }
 
 #[test]
 fn test_no_votes_first_candidate_wins() {
     let mut svm = setup();
+    let mut fx = ElectionFixture::create(&mut svm);
+    let state = fx.declare_winner(&mut svm);
 
-    let payer = Pubkey::new_unique();
-    let election = election_pda(payer);
-    let candidates: [Pubkey; 3] = std::array::from_fn(|_| Pubkey::new_unique());
-
-    let create_ix = create_election_ix(payer, election, candidates);
-    let mut accounts = vec![signer(payer), empty(election)];
-
-    let create_result = svm.process_instruction(&create_ix, &accounts);
-    assert!(
-        create_result.is_ok(),
-        "create_election failed: {:?}",
-        create_result.raw_result
-    );
-    accounts = create_result.accounts;
-
-    let declare_ix = declare_winner_ix(payer, election);
-    let declare_result = svm.process_instruction(&declare_ix, &accounts);
-    assert!(
-        declare_result.is_ok(),
-        "declare_winner (no votes) failed: {:?}",
-        declare_result.raw_result
-    );
-
-    let state = election_from_result(&declare_result, election);
-    assert_eq!(state.winner, Some(candidates[0]));
+    assert_eq!(state.winner, Some(fx.candidates[0]));
     assert_eq!(state.votes, [0, 0, 0]);
 }
 
 #[test]
 fn test_vote_non_candidate_fails() {
     let mut svm = setup();
-
-    let payer = Pubkey::new_unique();
-    let election = election_pda(payer);
-    let candidates: [Pubkey; 3] = std::array::from_fn(|_| Pubkey::new_unique());
+    let fx = ElectionFixture::create(&mut svm);
     let stranger = Pubkey::new_unique();
 
-    let create_ix = create_election_ix(payer, election, candidates);
-    let mut accounts = vec![signer(payer), empty(election)];
-
-    let create_result = svm.process_instruction(&create_ix, &accounts);
-    assert!(
-        create_result.is_ok(),
-        "create_election failed: {:?}",
-        create_result.raw_result
+    let result = svm.process_instruction(
+        &vote_ix(fx.payer, fx.election, stranger),
+        &fx.accounts,
     );
-    accounts = create_result.accounts;
-
-    let bad_vote_ix = vote_ix(payer, election, stranger);
-    let result = svm.process_instruction(&bad_vote_ix, &accounts);
     assert!(result.is_err(), "expected vote for non-candidate to fail");
 }

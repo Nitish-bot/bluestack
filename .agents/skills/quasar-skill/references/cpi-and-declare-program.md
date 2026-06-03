@@ -118,7 +118,7 @@ Account metas passed to CPI must match target program's expected order exactly. 
 CPI failure returns `ProgramError` from callee. Map to custom errors:
 
 ```rust
-external::call(...).invoke().map_err(|_| MyError::CpiFailed)?;
+external::call(...).invoke().map_err(|_| ElectionError::CpiFailed)?;
 ```
 
 Or use `?` to propagate.

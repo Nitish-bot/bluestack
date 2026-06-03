@@ -17,16 +17,13 @@ pub struct CreateElection {
 }
 
 impl CreateElection {
-    #[inline(always)]
     pub fn handler(&mut self, candidates: &[Address]) -> Result<(), ProgramError> {
-        let votes = [PodU32::from(0u32); 3];
-
         self.election.set_inner(
             ElectionInner {
                 creator: *self.payer.address(),
                 winner: None,
                 candidates,
-                votes: votes.as_ref(),
+                votes: &[PodU32::from(0); 3],
             },
             self.payer.to_account_view(),
             self.rent.lamports_per_byte(),
