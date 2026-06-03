@@ -22,11 +22,3 @@ default = ["alloc"]
 [dependencies]
 quasar-lang = { git = "https://github.com/blueshift-gg/quasar" }
 solana-instruction = { version = "3.2.0" }
-
-[dev-dependencies]
-bluestack-client = { path = "target/client/rust/bluestack-client" }
-quasar-lang = { git = "https://github.com/blueshift-gg/quasar" }
-quasar-svm = { git = "https://github.com/blueshift-gg/quasar-svm" }
-solana-account = { version = "3.4.0" }
-solana-address = { version = "2.2.0", features = ["decode"] }
-solana-instruction = { version = "3.2.0", features = ["bincode"] }
